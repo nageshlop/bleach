@@ -9,7 +9,12 @@ from six.moves.urllib.parse import urlparse
 from xml.sax.saxutils import unescape
 
 from bleach import html5lib_shim
-from bleach.utils import alphabetize_attributes, force_unicode
+from bleach.utils import (
+    _is_valid_netloc_and_port,
+    _parse_uri_scheme,
+    alphabetize_attributes,
+    force_unicode,
+)
 
 
 #: List of allowed tags
@@ -443,9 +448,20 @@ class BleachSanitizerFilter(html5lib_shim.SanitizerFilter):
         return new_tokens
 
     def sanitize_uri_value(self, value, allowed_protocols):
-        """Checks a uri value to see if it's allowed
+        """Checks a URI value to see if it's allowed
 
-        :arg value: the uri value to sanitize
+        ``urllib.parse.urlparse`` must be able to parse the URI.
+
+        The URI scheme must be in ``allowed_protocols`` or not have a
+        scheme and begin with a ``#`` indicating a relative URI by
+        fragment.
+
+        When ``"http"`` is in ``allowed_protocols`` (the default),
+        ``sanitize_uri_value`` also allows relative URIs matching an
+        IP address or hostname and port (e.g. ``localhost:8000``) and
+        relative URIs without a scheme (e.g. ``/path``).
+
+        :arg value: the URI value to sanitize
         :arg allowed_protocols: list of allowed protocols
 
         :returns: allowed value or None
@@ -469,33 +485,35 @@ class BleachSanitizerFilter(html5lib_shim.SanitizerFilter):
         new_value = new_value.lower()
 
         try:
-            # Drop attributes with uri values that have protocols that aren't
-            # allowed
-            parsed = urlparse(new_value)
+            _ = urlparse(new_value)
         except ValueError:
             # URI is impossible to parse, therefore it's not allowed
             return None
 
-        if parsed.scheme:
-            # If urlparse found a scheme, check that
-            if parsed.scheme in allowed_protocols:
-                return value
+        # If there's no protocol/scheme specified, then assume it's "http"
+        # and see if that's allowed
+        implicit_http_allowed = "http" in allowed_protocols
 
+        # Drop attributes with uri values that have protocols that aren't
+        # allowed
+        scheme = _parse_uri_scheme(new_value)
+        if scheme:
+            if scheme in allowed_protocols:
+                return value
+            elif implicit_http_allowed and _is_valid_netloc_and_port(scheme):
+                return value
+            else:
+                # parsed a disallowed protocol/scheme
+                # or implicit protocols are allowed and it's an invalid netloc:port
+                return None
         else:
-            # Allow uris that are just an anchor
             if new_value.startswith("#"):
+                # Allow uris that are just an anchor
                 return value
-
-            # Handle protocols that urlparse doesn't recognize like "myprotocol"
-            if ":" in new_value and new_value.split(":")[0] in allowed_protocols:
+            elif implicit_http_allowed:
                 return value
-
-            # If there's no protocol/scheme specified, then assume it's "http"
-            # and see if that's allowed
-            if "http" in allowed_protocols:
-                return value
-
-        return None
+            else:
+                return None
 
     def allow_token(self, token):
         """Handles the case where we're allowing the tag"""

@@ -6,7 +6,7 @@ import pytest
 
 from bleach import clean
 from bleach.html5lib_shim import Filter
-from bleach.sanitizer import Cleaner
+from bleach.sanitizer import ALLOWED_PROTOCOLS, Cleaner
 from bleach._vendor.html5lib.constants import rcdataElements
 
 
@@ -56,10 +56,6 @@ def test_html_is_lowercased():
         clean('<A HREF="http://example.com">foo</A>')
         == '<a href="http://example.com">foo</a>'
     )
-
-
-def test_invalid_uri_does_not_raise_error():
-    assert clean('<a href="http://example.com]">text</a>') == "<a>text</a>"
 
 
 @pytest.mark.parametrize(
@@ -471,10 +467,31 @@ def test_attributes_list():
 @pytest.mark.parametrize(
     "data, kwargs, expected",
     [
+        # invalid URI (urlparse raises a ValueError: Invalid IPv6 URL)
+        # is not allowed by default
+        (
+            '<a href="http://example.com]">text</a>',
+            {"protocols": ALLOWED_PROTOCOLS},
+            "<a>text</a>",
+        ),
+        # data protocol is not allowed by default
+        (
+            '<a href="data:text/javascript,prompt(1)">foo</a>',
+            {"protocols": ALLOWED_PROTOCOLS},
+            "<a>foo</a>",
+        ),
         # javascript: is not allowed by default
-        ("<a href=\"javascript:alert('XSS')\">xss</a>", {}, "<a>xss</a>"),
+        (
+            "<a href=\"javascript:alert('XSS')\">xss</a>",
+            {"protocols": ALLOWED_PROTOCOLS},
+            "<a>xss</a>",
+        ),
         # File protocol is not allowed by default
-        ('<a href="file:///tmp/foo">foo</a>', {}, "<a>foo</a>"),
+        (
+            '<a href="file:///tmp/foo">foo</a>',
+            {"protocols": ALLOWED_PROTOCOLS},
+            "<a>foo</a>",
+        ),
         # Specified protocols are allowed
         (
             '<a href="myprotocol://more_text">allowed href</a>',
@@ -495,6 +512,11 @@ def test_attributes_list():
         ),
         # Allow implicit http if allowed
         (
+            '<a href="/path">valid</a>',
+            {"protocols": ["http"]},
+            '<a href="/path">valid</a>',
+        ),
+        (
             '<a href="example.com">valid</a>',
             {"protocols": ["http"]},
             '<a href="example.com">valid</a>',
@@ -523,6 +545,11 @@ def test_attributes_list():
             '<a href="192.168.100.100:8000">valid</a>',
             {"protocols": ["http"]},
             '<a href="192.168.100.100:8000">valid</a>',
+        ),
+        (
+            '<a href="192.168.100.100:8000/foo#bar">valid</a>',
+            {"protocols": ["http"]},
+            '<a href="192.168.100.100:8000/foo#bar">valid</a>',
         ),
         # Disallow implicit http if disallowed
         ('<a href="example.com">foo</a>', {"protocols": []}, "<a>foo</a>"),
