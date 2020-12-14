@@ -1,6 +1,9 @@
 # Note: If you update this, make sure to update tox.ini, too.
 dist: xenial
 language: python
+arch:
+  - amd64
+  - ppc64le
 cache:
   directories:
   - "~/.cache/pip"
@@ -34,6 +37,31 @@ matrix:
         - pip install -U black
     - python: "3.6"
       env: MODE=docs
-
+# ppc64le related code      
+    - python: "2.7"
+      arch: ppc64le
+      env: MODE=lint
+    - python: "2.7"
+      arch: ppc64le
+      env: MODE=vendorverify
+    - python: "3.8"
+      arch: ppc64le
+      env: MODE=lint
+    - python: "3.8"
+      arch: ppc64le
+      env: MODE=format-check
+      install:
+        - pip install -U pip setuptools>=18.5
+        - pip install -r requirements-dev.txt
+        - pip install -U black
+    - python: "3.6"
+      arch: ppc64le
+      env: MODE=docs
+jobs:
+  exclude:
+    - arch: ppc64le
+      python: "pypy"
+    - arch: ppc64le
+      python: "pypy3"
 script:
   - ./scripts/run_tests.sh $MODE
